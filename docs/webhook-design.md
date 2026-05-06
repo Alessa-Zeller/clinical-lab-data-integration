@@ -140,3 +140,19 @@ All task logs include `delivery_id`, `team_slug`, bundle size, and outcome. This
 - **Schema versioning**: FHIR R4 is assumed stable. If Riverside upgrades to R5, a version negotiation layer would be needed.
 - **Authentication beyond HMAC**: mTLS or OAuth2 could replace or supplement HMAC. HMAC is sufficient for this integration given the shared-secret model the hospital already uses.
 - **Result pagination in the API**: The 5-minute latency SLO applies to ingestion, not API response time. API pagination is a separate concern.
+
+---
+
+## Design Gaps / Future Improvements
+
+- **Idempotency robustness**
+  Current deduplication uses `SHA256(raw_body)`, which only detects byte-identical retries. Semantically identical bundles with different serialization may bypass this check. A more robust approach would use `Bundle.identifier`, a delivery ID, or enforce idempotency at the resource level (e.g. per `accession_number` / `Observation.id`).
+
+- **Replay attack protection**
+  HMAC authentication ensures integrity but does not prevent replay attacks. Production systems should include timestamp validation (and optionally nonces) to enforce request freshness — a common convention is to reject requests whose timestamp header falls outside a ±5-minute window.
+
+- **Correction vs. duplicate distinction**
+  The system overwrites records via `update_or_create(accession_number=...)`, but does not distinguish between duplicate deliveries and true clinical corrections. Version tracking or audit history (e.g. append-only event log alongside the current-state record) could improve traceability and support clinical audit requirements.
+
+- **Dead-letter replay strategy**
+  While failed bundles are captured in a dead-letter queue, the replay mechanism is implicit. A defined operational process — for example, re-enqueuing a specific bundle by `delivery_id` via a management command or admin action — would improve clarity and reduce the risk of accidental double-processing during incident recovery.
